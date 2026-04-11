@@ -2,11 +2,25 @@
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as portfolio_router
+from app.api.auth_routes import router as auth_router
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="ARAIA Portfolio Input API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(auth_router)
 app.include_router(portfolio_router)

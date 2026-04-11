@@ -25,20 +25,20 @@ def generate_portfolio_explanation(data: dict) -> str:
     api_key = os.getenv("GROQ_API_KEY")
     
     if not api_key:
-        print("⚠️ WARNING: GROQ_API_KEY not found in environment variables")
+        print("[WARN] GROQ_API_KEY not found in environment variables")
         return (
             "AI explanation unavailable: GROQ_API_KEY is not configured. "
             "Set the key in .env file to enable generated insights."
         )
 
     try:
-        print(f"✓ Groq API Key found (length: {len(api_key)} chars)")
-        print(f"✓ Using model: {DEFAULT_GROQ_MODEL}")
+        print(f"[OK] Groq API Key found (length: {len(api_key)} chars)")
+        print(f"[OK] Using model: {DEFAULT_GROQ_MODEL}")
         
         client = Groq(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
         
-        print("✓ Groq client initialized")
-        print("✓ Calling Groq API...")
+        print("[OK] Groq client initialized")
+        print("[OK] Calling Groq API...")
         
         response = client.chat.completions.create(
             model=DEFAULT_GROQ_MODEL,
@@ -49,21 +49,21 @@ def generate_portfolio_explanation(data: dict) -> str:
             temperature=0.2,
         )
         
-        print("✓ Groq API response received")
+        print("[OK] Groq API response received")
         
         content = response.choices[0].message.content
         if not content:
-            print("⚠️ WARNING: Empty response from Groq model")
+            print("[WARN] WARNING: Empty response from Groq model")
             return "AI explanation unavailable: empty response from Groq model."
         
-        print(f"✓ AI explanation generated ({len(content)} chars)")
+        print(f"[OK] AI explanation generated ({len(content)} chars)")
         return content.strip()
         
     except TimeoutError as exc:
         error_msg = f"AI explanation unavailable: Groq API timeout ({REQUEST_TIMEOUT_SECONDS}s)"
-        print(f"❌ {error_msg}")
+        print(f"[ERR] {error_msg}")
         return error_msg
     except Exception as exc:
         error_msg = f"AI explanation unavailable due to Groq API error: {str(exc)}"
-        print(f"❌ {error_msg}")
+        print(f"[ERR] {error_msg}")
         return error_msg
