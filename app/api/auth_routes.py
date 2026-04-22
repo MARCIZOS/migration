@@ -45,11 +45,11 @@ def login(credentials: UserLogin) -> dict:
             detail="Invalid username or password",
         )
     
-    token = create_access_token(credentials.username)
+    token = create_access_token(user["username"])
     return {
         "access_token": token,
         "token_type": "bearer",
-        "username": credentials.username,
+        "username": user["username"],
     }
 
 

@@ -241,6 +241,8 @@ def initialize_session_state():
         st.session_state.username = None
     if "token" not in st.session_state:
         st.session_state.token = None
+    if "workspace_tab" not in st.session_state:
+        st.session_state.workspace_tab = "Dashboard"
 
 
 def login_user(username: str, password: str) -> tuple[bool, dict | str]:
@@ -1354,8 +1356,8 @@ def render_portfolio_input_section():
         if ticker.strip():
             assets.append({"ticker": ticker.strip().upper(), "weight": weight})
 
-    if assets:
-        st.session_state.assets = assets
+    # Always update session state with valid assets
+    st.session_state.assets = assets
 
     if st.button("➕ Add Asset", key="add_asset"):
         st.session_state.assets.append({"ticker": "", "weight": 0.25})
@@ -1918,6 +1920,18 @@ def apply_dashboard_workspace_styles():
             padding: 16px 18px;
             margin-bottom: 16px;
             box-shadow: inset 0 1px 0 rgba(120, 255, 207, 0.04);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .workspace-main [data-testid="column"] > div {
+            height: 100%;
+        }
+
+        .workspace-main .stButton > button,
+        .workspace-main .stDownloadButton > button {
+            width: 100%;
         }
 
         .panel-title {
@@ -2190,6 +2204,20 @@ def render_dashboard_workspace(assets: list[dict]):
     """Render the redesigned multi-panel dashboard workspace."""
     apply_dashboard_workspace_styles()
     data = st.session_state.portfolio_data
+    tab_options = ["Home", "Dashboard", "Portfolio", "Stress Lab", "AI Insights"]
+    selected_tab = st.session_state.workspace_tab
+
+    if selected_tab not in tab_options:
+        selected_tab = "Dashboard"
+        st.session_state.workspace_tab = selected_tab
+
+    tab_subtitles = {
+        "Home": "Overview of your workspace and latest portfolio status.",
+        "Dashboard": "Portfolio monitoring, diversification, and stress analysis in one grid.",
+        "Portfolio": "Build and analyze your portfolio allocations and correlations.",
+        "Stress Lab": "Inspect downside behavior under stressed market assumptions.",
+        "AI Insights": "Review generated portfolio narrative and export analysis artifacts.",
+    }
 
     st.markdown("<div class='dashboard-shell'>", unsafe_allow_html=True)
     shell_left, shell_right = st.columns([0.9, 3.3], gap="medium")
@@ -2205,58 +2233,35 @@ def render_dashboard_workspace(assets: list[dict]):
                     <div class='dashboard-profile-name'>{st.session_state.username or 'Analyst'}</div>
                     <div class='dashboard-profile-sub'>Risk workspace</div>
                 </div>
-                <div class='nav-group'>
-                    <div class='nav-item'>Home</div>
-                    <div class='nav-item active'>Dashboard</div>
-                    <div class='nav-item'>Portfolio</div>
-                    <div class='nav-item'>Stress Lab</div>
-                    <div class='nav-item'>AI Insights</div>
-                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+        for tab in tab_options:
+            if st.button(
+                tab,
+                key=f"workspace_tab_{tab}",
+                use_container_width=True,
+                type="primary" if selected_tab == tab else "secondary",
+            ):
+                st.session_state.workspace_tab = tab
+                st.rerun()
+
         if st.button("Logout", key="workspace_logout", use_container_width=True):
             logout_user()
             st.session_state.page = "landing"
             st.rerun()
-
-        if data and "metrics" in data:
-            st.markdown("<div class='panel-card'><div class='panel-title'>Clusters & Correlations</div><div class='panel-caption'>Concentration pockets and pair relationships.</div>", unsafe_allow_html=True)
-            clusters = data.get("clusters", {})
-            for cluster_id, tickers in clusters.items():
-                st.markdown(f"<div class='pill-stat'>Cluster {cluster_id}: {', '.join(tickers)}</div>", unsafe_allow_html=True)
-            high_corr_pairs = data.get("high_correlation_pairs", [])
-            if high_corr_pairs:
-                st.dataframe(
-                    pd.DataFrame(high_corr_pairs, columns=["Asset A", "Asset B", "Correlation"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.caption("No high-correlation pairs above threshold.")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown("<div class='panel-card'><div class='panel-title'>Diversification</div><div class='panel-caption'>Effective number of bets and cluster concentration.</div>", unsafe_allow_html=True)
-            st.markdown(
-                f"<div class='pill-stat'>ENB {data.get('diversification', {}).get('enb', 0):.2f}</div>"
-                f"<div class='pill-stat'>Score {data.get('diversification', {}).get('diversification_score', 0):.2f}</div>",
-                unsafe_allow_html=True,
-            )
-            cluster_fig = create_cluster_bar_figure(data)
-            if cluster_fig is not None:
-                st.plotly_chart(cluster_fig, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
     with shell_right:
         st.markdown("<div class='workspace-main'>", unsafe_allow_html=True)
         top_left, top_mid, top_right = st.columns([2.4, 1.2, 0.9], gap="medium")
         with top_left:
             st.markdown(
-                """
+                f"""
                 <div class='workspace-topbar'>
-                    <div class='workspace-title'>Dashboard</div>
-                    <div class='workspace-subtitle'>Portfolio monitoring, diversification, and stress analysis in one grid.</div>
+                    <div class='workspace-title'>{selected_tab}</div>
+                    <div class='workspace-subtitle'>{tab_subtitles[selected_tab]}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2282,80 +2287,140 @@ def render_dashboard_workspace(assets: list[dict]):
                 unsafe_allow_html=True,
             )
 
-        input_col, insight_col = st.columns([2.45, 0.55], gap="medium")
-        with input_col:
-            st.markdown("<div class='panel-card'><div class='panel-title'>Portfolio Input</div><div class='panel-caption'>Upload a CSV or edit weights before analysis.</div>", unsafe_allow_html=True)
-            assets = render_portfolio_input_section()
-            if st.button("Analyze Portfolio", key="workspace_analyze", use_container_width=True):
-                success, result = call_backend_api(assets)
-                if success:
-                    st.session_state.portfolio_data = result
-                    st.session_state.error_message = None
-                else:
-                    st.session_state.error_message = result
-                    st.session_state.portfolio_data = None
-            st.markdown("</div>", unsafe_allow_html=True)
-        with insight_col:
-            st.markdown(
-                """
-                <div class='panel-card'>
-                    <div class='panel-title'>Workspace Controls</div>
-                    <div class='panel-caption'>Core assumptions used by the analytics engine.</div>
-                    <div class='pill-stat'>Confidence 95%</div>
-                    <div class='pill-stat'>Period 1Y</div>
-                    <div class='pill-stat'>Source Yahoo Finance</div>
-                    <div class='pill-stat'>Mode Historical</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.session_state.error_message:
-                st.markdown(
-                    f"<div class='panel-card'><div class='panel-title'>Alert</div><div class='panel-caption'>{st.session_state.error_message}</div></div>",
-                    unsafe_allow_html=True,
-                )
-            elif data is None:
+        if selected_tab in {"Dashboard", "Portfolio"}:
+            input_col, insight_col = st.columns([2.0, 1.0], gap="medium")
+            with input_col:
+                assets = render_portfolio_input_section()
                 st.markdown(
                     """
                     <div class='panel-card'>
-                        <div class='panel-title'>Ready To Analyze</div>
-                        <div class='panel-caption'>Run an analysis to populate the metric grid, charts, clustering panel, and AI insight modules.</div>
+                        <div class='panel-title'>Run Analysis</div>
+                        <div class='panel-caption'>Submit the current portfolio to refresh all dashboard modules.</div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("Analyze Portfolio", key="workspace_analyze", use_container_width=True):
+                    success, result = call_backend_api(assets)
+                    if success:
+                        st.session_state.portfolio_data = result
+                        st.session_state.error_message = None
+                    else:
+                        st.session_state.error_message = result
+                        st.session_state.portfolio_data = None
+                st.markdown("</div>", unsafe_allow_html=True)
+            with insight_col:
+                st.markdown(
+                    """
+                    <div class='panel-card'>
+                        <div class='panel-title'>Workspace Controls</div>
+                        <div class='panel-caption'>Core assumptions used by the analytics engine.</div>
+                        <div class='pill-stat'>Confidence 95%</div>
+                        <div class='pill-stat'>Period 1Y</div>
+                        <div class='pill-stat'>Source Yahoo Finance</div>
+                        <div class='pill-stat'>Mode Historical</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-
-        if data and "metrics" in data:
-            metric_cols = st.columns(4, gap="medium")
-            metric_specs = [
-                ("Volatility", f"{data['metrics'].get('volatility', 0):.2%}", "Annualized risk"),
-                ("VaR 95%", f"{data['metrics'].get('var', 0):.4f}", "Downside threshold"),
-                ("CVaR 95%", f"{data['metrics'].get('cvar', 0):.4f}", "Tail loss average"),
-                ("Max Drawdown", f"{data['metrics'].get('max_drawdown', 0):.2%}", "Peak-to-trough"),
-            ]
-            for col, (label, value, sub) in zip(metric_cols, metric_specs):
-                with col:
+                if st.session_state.error_message:
                     st.markdown(
-                        f"""
-                        <div class='mini-metric'>
-                            <div class='mini-metric-label'>{label}</div>
-                            <div class='mini-metric-value'>{value}</div>
-                            <div class='mini-metric-sub'>{sub}</div>
+                        f"<div class='panel-card'><div class='panel-title'>Alert</div><div class='panel-caption'>{st.session_state.error_message}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                elif data is None:
+                    st.markdown(
+                        """
+                        <div class='panel-card'>
+                            <div class='panel-title'>Ready To Analyze</div>
+                            <div class='panel-caption'>Run an analysis to populate the metric grid, charts, clustering panel, and AI insight modules.</div>
                         </div>
                         """,
                         unsafe_allow_html=True,
                     )
+        elif selected_tab == "Home":
+            st.markdown(
+                """
+                <div class='panel-card'>
+                    <div class='panel-title'>Welcome</div>
+                    <div class='panel-caption'>Use Portfolio tab to upload assets and run a fresh analysis. Dashboard tab shows the complete multi-panel view.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div class='panel-card'>
+                    <div class='panel-title'>Focused View</div>
+                    <div class='panel-caption'>This tab highlights a subset of modules from your latest analysis output.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            left_grid, right_grid = st.columns([1.7, 1.0], gap="medium")
-            with left_grid:
-                st.markdown("<div class='panel-card'><div class='panel-title'>Correlation Matrix</div><div class='panel-caption'>Cross-asset dependency view.</div>", unsafe_allow_html=True)
-                heatmap_fig = create_correlation_heatmap_figure(data)
-                if heatmap_fig is not None:
-                    st.plotly_chart(heatmap_fig, use_container_width=True)
-                else:
-                    st.info("Correlation matrix not available.")
-                st.markdown("</div>", unsafe_allow_html=True)
+        if data and "metrics" in data:
+            if selected_tab in {"Home", "Dashboard", "Portfolio", "Stress Lab"}:
+                metric_cols = st.columns(4, gap="medium")
+                metric_specs = [
+                    ("Volatility", f"{data['metrics'].get('volatility', 0):.2%}", "Annualized risk"),
+                    ("VaR 95%", f"{data['metrics'].get('var', 0):.4f}", "Downside threshold"),
+                    ("CVaR 95%", f"{data['metrics'].get('cvar', 0):.4f}", "Tail loss average"),
+                    ("Max Drawdown", f"{data['metrics'].get('max_drawdown', 0):.2%}", "Peak-to-trough"),
+                ]
+                for col, (label, value, sub) in zip(metric_cols, metric_specs):
+                    with col:
+                        st.markdown(
+                            f"""
+                            <div class='mini-metric'>
+                                <div class='mini-metric-label'>{label}</div>
+                                <div class='mini-metric-value'>{value}</div>
+                                <div class='mini-metric-sub'>{sub}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
+            if selected_tab in {"Dashboard", "Portfolio"}:
+                top_cards_left, top_cards_right = st.columns(2, gap="medium")
+
+                with top_cards_left:
+                    st.markdown("<div class='panel-card'><div class='panel-title'>Clusters & Correlations</div><div class='panel-caption'>Concentration pockets and pair relationships.</div>", unsafe_allow_html=True)
+                    clusters = data.get("clusters", {})
+                    for cluster_id, tickers in clusters.items():
+                        st.markdown(f"<div class='pill-stat'>Cluster {cluster_id}: {', '.join(tickers)}</div>", unsafe_allow_html=True)
+                    high_corr_pairs = data.get("high_correlation_pairs", [])
+                    if high_corr_pairs:
+                        st.dataframe(
+                            pd.DataFrame(high_corr_pairs, columns=["Asset A", "Asset B", "Correlation"]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.caption("No high-correlation pairs above threshold.")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                with top_cards_right:
+                    st.markdown("<div class='panel-card'><div class='panel-title'>Diversification</div><div class='panel-caption'>Effective number of bets and cluster concentration.</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='pill-stat'>ENB {data.get('diversification', {}).get('enb', 0):.2f}</div>"
+                        f"<div class='pill-stat'>Score {data.get('diversification', {}).get('diversification_score', 0):.2f}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    cluster_fig = create_cluster_bar_figure(data)
+                    if cluster_fig is not None:
+                        st.plotly_chart(cluster_fig, use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                with st.container():
+                    st.markdown("<div class='panel-card'><div class='panel-title'>Correlation Matrix</div><div class='panel-caption'>Cross-asset dependency view.</div>", unsafe_allow_html=True)
+                    heatmap_fig = create_correlation_heatmap_figure(data)
+                    if heatmap_fig is not None:
+                        st.plotly_chart(heatmap_fig, use_container_width=True)
+                    else:
+                        st.info("Correlation matrix not available.")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+            if selected_tab in {"Dashboard", "Stress Lab"}:
                 lower_left, lower_right = st.columns([1.15, 0.85], gap="medium")
                 with lower_left:
                     st.markdown("<div class='panel-card'><div class='panel-title'>Risk Contribution</div><div class='panel-caption'>Asset exposure versus total portfolio risk.</div>", unsafe_allow_html=True)
@@ -2370,181 +2435,46 @@ def render_dashboard_workspace(assets: list[dict]):
                     st.plotly_chart(create_stress_figure(data), use_container_width=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
-            with right_grid:
-                st.markdown("<div class='panel-card'><div class='panel-title'>Portfolio Radar</div><div class='panel-caption'>Normalized view of portfolio health dimensions.</div>", unsafe_allow_html=True)
-                st.plotly_chart(create_radar_figure(data), use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            final_left, final_right = st.columns([1.2, 0.8], gap="medium")
-            with final_left:
-                st.markdown("<div class='panel-card'><div class='panel-title'>AI Insights</div><div class='panel-caption'>Natural-language explanation of current risk posture.</div>", unsafe_allow_html=True)
-                ai_text = data.get("ai_explanation", "AI insights unavailable.")
-                st.markdown(f"<div class='ai-explanation'>{ai_text}</div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-            with final_right:
-                st.markdown("<div class='panel-card'><div class='panel-title'>Export & Raw Data</div><div class='panel-caption'>Download the latest analysis or inspect the payload.</div>", unsafe_allow_html=True)
-                json_str = json.dumps(data, indent=2)
-                st.download_button(
-                    label="Download JSON",
-                    data=json_str,
-                    file_name="portfolio_analysis.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    key="workspace_download_json",
-                )
-                with st.expander("Open raw response"):
-                    st.json(data)
-                st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ============================================================================
-# MAIN APPLICATION
-# ============================================================================
-
-
-def main():
-    """Main application - Landing page, Login page, or Dashboard based on session state."""
-    initialize_session_state()
-
-    if st.session_state.page == "landing":
-        render_landing_page()
-    elif st.session_state.page == "login":
-        render_login_page_functional()
-    else:
-        if not st.session_state.logged_in:
-            st.session_state.page = "login"
-            st.rerun()
-
-        # Dashboard view
-        col_main, col_right = st.columns([3, 1])
-        
-        with col_main:
-            # Portfolio Input
-            st.markdown("")
-            assets = render_portfolio_input_section()
-
-            # Analyze Button
-            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-            with col_btn2:
-                if st.button("🚀 Analyze Portfolio", use_container_width=True):
-                    success, result = call_backend_api(assets)
-                    if success:
-                        st.session_state.portfolio_data = result
-                        st.session_state.error_message = None
-                    else:
-                        st.session_state.error_message = result
-                        st.session_state.portfolio_data = None
-
-            st.markdown("")
-
-            # Display Errors
-            if st.session_state.error_message:
-                st.markdown(
-                    f"""
-                    <div class='error-box'>
-                    ❌ {st.session_state.error_message}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            # Display Results
-            if st.session_state.portfolio_data:
-                data = st.session_state.portfolio_data
-
-                if "metrics" not in data:
-                    st.error("❌ Backend response missing metrics.")
-                    st.json(data)
-                    return
-
-                # Dashboard Section
-                render_dashboard_section(data)
-                st.markdown("")
-
-                # Stress Test Section
-                render_stress_test_section(data)
-                st.markdown("")
-
-                # Two-column layout: Left (Clusters, Correlation, Diversification) | Right (Correlation Matrix)
-                left_col, right_col = st.columns([1, 1.5], gap="medium")
-                
-                with left_col:
-                    # Clusters Section
-                    render_clusters_section(data)
-                    st.markdown("")
-                    
-                    # Diversification Section
-                    render_diversification_section(data)
-                
-                with right_col:
-                    # Charts Section
-                    st.markdown(
-                        """
-                        <div class='glass-card'>
-                            <h3 class='glow-text'>📈 Detailed Analysis</h3>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    
-                    tab1, tab2, tab3 = st.tabs(
-                        ["Correlation", "Risk Distribution", "Raw Data"]
-                    )
-
-                    with tab1:
-                        plot_correlation_heatmap(data)
-
-                    with tab2:
-                        plot_risk_contribution(data)
-
-                    with tab3:
-                        st.markdown("**Full API Response**")
-                        st.json(data)
-                    
+                with st.container():
+                    st.markdown("<div class='panel-card'><div class='panel-title'>Portfolio Radar</div><div class='panel-caption'>Normalized view of portfolio health dimensions.</div>", unsafe_allow_html=True)
+                    st.plotly_chart(create_radar_figure(data), use_container_width=True)
                     st.markdown("</div>", unsafe_allow_html=True)
-                
-                st.markdown("")
 
-                # AI Explanation
-                render_ai_explanation_section(data)
-                st.markdown("")
-
-                # Export
-                st.markdown(
-                    """
-                    <div class='glass-card'>
-                        <h3 class='glow-text'>📥 Export Results</h3>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                json_str = json.dumps(data, indent=2)
-                st.download_button(
-                    label="📥 Download Analysis as JSON",
-                    data=json_str,
-                    file_name="portfolio_analysis.json",
-                    mime="application/json",
-                    use_container_width=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-        
-        with col_right:
+            if selected_tab in {"Dashboard", "AI Insights"}:
+                final_left, final_right = st.columns([1.2, 0.8], gap="medium")
+                with final_left:
+                    st.markdown("<div class='panel-card'><div class='panel-title'>AI Insights</div><div class='panel-caption'>Natural-language explanation of current risk posture.</div>", unsafe_allow_html=True)
+                    ai_text = data.get("ai_explanation", "AI insights unavailable.")
+                    st.markdown(f"<div class='ai-explanation'>{ai_text}</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                with final_right:
+                    st.markdown("<div class='panel-card'><div class='panel-title'>Export & Raw Data</div><div class='panel-caption'>Download the latest analysis or inspect the payload.</div>", unsafe_allow_html=True)
+                    json_str = json.dumps(data, indent=2)
+                    st.download_button(
+                        label="Download JSON",
+                        data=json_str,
+                        file_name="portfolio_analysis.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="workspace_download_json",
+                    )
+                    with st.expander("Open raw response"):
+                        st.json(data)
+                    st.markdown("</div>", unsafe_allow_html=True)
+        elif selected_tab != "Home":
             st.markdown(
                 """
-                <div class='glass-card' style='margin-top: 0;'>
-                    <h4 class='glow-text' style='margin: 0 0 15px 0;'>⚙️ Quick Settings</h4>
-                    <p style='color: #888; font-size: 12px;'>Portfolio Optimizer v1.0</p>
-                    <hr style='border-color: rgba(0,255,200,0.2);'>
-                    
-                    <p style='color: #a0d8ff; font-size: 13px;'><strong>Confidence Level:</strong><br/>95% (VaR/CVaR)</p>
-                    <p style='color: #a0d8ff; font-size: 13px;'><strong>Analysis Period:</strong><br/>1 Year</p>
-                    <p style='color: #a0d8ff; font-size: 13px;'><strong>Data Source:</strong><br/>Yahoo Finance</p>
+                <div class='panel-card'>
+                    <div class='panel-title'>No Analysis Data Yet</div>
+                    <div class='panel-caption'>Run an analysis from the Portfolio tab to populate this view.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def main():

@@ -1,5 +1,7 @@
 """API routes for portfolio operations."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 
 from app.models.portfolio import PortfolioRequest
@@ -29,6 +31,7 @@ from app.services.stress_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/portfolio")
@@ -76,43 +79,24 @@ def create_portfolio(portfolio: PortfolioRequest) -> dict[str, object]:
             detail=str(exc),
         ) from exc
 
-    print("Price data preview:")
-    print(price_df.head().to_string())
-    print("Returns data preview:")
-    print(returns_df.head().to_string())
-    print("Correlation matrix preview:")
-    print(corr_matrix.head().to_string())
-    print("Distance matrix preview:")
-    print((1.0 - corr_matrix).head().to_string())
-    print("High correlation pairs:")
-    print(high_corr_pairs)
-    print("Cluster assignments:")
-    print(clusters)
-    print("Portfolio returns head:")
-    print(portfolio_returns.head().to_string())
-    print("Volatility:")
-    print(volatility)
-    print("VaR 95:")
-    print(var_95)
-    print("CVaR 95:")
-    print(cvar_95)
-    print("Max drawdown:")
-    print(max_drawdown)
-    print("Stressed returns head:")
-    print(stressed_returns_df.head().to_string())
-    print("Normal vs stressed VaR/CVaR:")
-    print(
-        {
-            "normal_var": var_95,
-            "stressed_var": stressed_var_95,
-            "normal_cvar": cvar_95,
-            "stressed_cvar": stressed_cvar_95,
-        }
+    logger.debug(
+        "Portfolio analysis complete for tickers=%s | rows(prices)=%d rows(returns)=%d clusters=%d high_corr_pairs=%d",
+        tickers,
+        len(price_df),
+        len(returns_df),
+        len(clusters),
+        len(high_corr_pairs),
     )
-    print("ENB value:")
-    print(enb)
-    print("Cluster weights:")
-    print(cluster_concentration)
+    logger.debug(
+        "Risk metrics volatility=%.6f var95=%.6f cvar95=%.6f max_drawdown=%.6f stressed_var95=%.6f stressed_cvar95=%.6f enb=%.6f",
+        volatility,
+        var_95,
+        cvar_95,
+        max_drawdown,
+        stressed_var_95,
+        stressed_cvar_95,
+        enb,
+    )
 
     llm_input = {
         "volatility": volatility,
@@ -130,10 +114,11 @@ def create_portfolio(portfolio: PortfolioRequest) -> dict[str, object]:
         },
     }
     ai_explanation = generate_portfolio_explanation(llm_input)
-    print("Input sent to Groq:")
-    print(llm_input)
-    print("Raw Groq LLM response:")
-    print(ai_explanation)
+    logger.debug(
+        "Generated AI explanation for tickers=%s with response_length=%d",
+        tickers,
+        len(ai_explanation),
+    )
 
     return {
         "message": "Analysis complete",
