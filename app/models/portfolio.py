@@ -14,3 +14,4 @@ class PortfolioRequest(BaseModel):
     """Request model containing a list of portfolio assets."""
 
     assets: list[Asset] = Field(..., description="List of portfolio assets")
+    debug_rag: bool = Field(False, description="Return RAG debug context when true")

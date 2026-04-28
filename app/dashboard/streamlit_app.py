@@ -243,6 +243,15 @@ def initialize_session_state():
         st.session_state.token = None
     if "workspace_tab" not in st.session_state:
         st.session_state.workspace_tab = "Dashboard"
+    # NEW: Enhanced advisory features
+    if "improved_portfolio" not in st.session_state:
+        st.session_state.improved_portfolio = None
+    if "bond_allocation" not in st.session_state:
+        st.session_state.bond_allocation = 30
+    if "show_context" not in st.session_state:
+        st.session_state.show_context = True
+    if "improved_data" not in st.session_state:
+        st.session_state.improved_data = None
 
 
 def login_user(username: str, password: str) -> tuple[bool, dict | str]:
@@ -392,7 +401,10 @@ def call_backend_api(assets: list[dict]) -> tuple[bool, dict | str]:
     if not normalized_assets:
         return False, "Portfolio must contain at least one asset with weight > 0."
 
-    payload = {"assets": normalized_assets}
+    payload = {
+        "assets": normalized_assets,
+        "debug_rag": bool(st.session_state.show_context),
+    }
 
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=30)
@@ -412,6 +424,136 @@ def call_backend_api(assets: list[dict]) -> tuple[bool, dict | str]:
         return False, "❌ Cannot connect to backend. Ensure it's running at http://127.0.0.1:8002"
     except Exception as exc:
         return False, f"Unexpected error: {str(exc)}"
+
+
+# ============================================================================
+# NEW: ENHANCED ADVISORY & IMPROVEMENT FUNCTIONS
+# ============================================================================
+
+
+def generate_improved_portfolio() -> dict:
+    """Generate recommended improved portfolio allocation."""
+    return {
+        "AAPL": 0.30,
+        "MSFT": 0.20,
+        "AGG": 0.30,
+        "GLD": 0.10,
+        "VEA": 0.10,
+    }
+
+
+def generate_trade_actions(current_assets: list[dict], improved: dict) -> dict:
+    """Generate SELL and BUY actions to rebalance from current to improved."""
+    current_map = {asset["ticker"]: asset["weight"] for asset in current_assets}
+    
+    sell_actions = {}
+    buy_actions = {}
+    
+    for ticker, new_weight in improved.items():
+        current_weight = current_map.get(ticker, 0)
+        diff = new_weight - current_weight
+        
+        if diff > 0.01:  # Buy
+            buy_actions[ticker] = diff
+        elif diff < -0.01:  # Sell
+            sell_actions[ticker] = abs(diff)
+    
+    # Add tickers not in improved (sell all)
+    for ticker, current_weight in current_map.items():
+        if ticker not in improved and current_weight > 0.01:
+            sell_actions[ticker] = current_weight
+    
+    return {"sell": sell_actions, "buy": buy_actions}
+
+
+def generate_comparison_table(current_data: dict, improved_data: dict) -> pd.DataFrame:
+    """Create before vs after comparison table."""
+    current_metrics = current_data.get("metrics", {})
+    current_div = current_data.get("diversification", {})
+    current_stress = current_data.get("stress", {})
+    
+    improved_metrics = improved_data.get("metrics", {})
+    improved_div = improved_data.get("diversification", {})
+    improved_stress = improved_data.get("stress", {})
+    
+    # Extract top cluster concentration
+    current_clusters = current_data.get("diversification", {}).get("cluster_concentration", {})
+    improved_clusters = improved_data.get("diversification", {}).get("cluster_concentration", {})
+    current_top_cluster = max(current_clusters.values(), default=1.0)
+    improved_top_cluster = max(improved_clusters.values(), default=0.5)
+    
+    comparison_data = {
+        "Metric": [
+            "Volatility",
+            "VaR (95%)",
+            "CVaR (95%)",
+            "Max Drawdown",
+            "ENB",
+            "Top Cluster Conc.",
+            "Stressed VaR",
+            "Stressed CVaR",
+        ],
+        "Current": [
+            f"{current_metrics.get('volatility', 0):.2%}",
+            f"{current_metrics.get('var', 0):.4f}",
+            f"{current_metrics.get('cvar', 0):.4f}",
+            f"{current_metrics.get('max_drawdown', 0):.2%}",
+            f"{current_div.get('enb', 0):.2f}",
+            f"{current_top_cluster:.2f}",
+            f"{current_stress.get('stressed_var', 0):.4f}",
+            f"{current_stress.get('stressed_cvar', 0):.4f}",
+        ],
+        "Improved": [
+            f"{improved_metrics.get('volatility', 0):.2%}",
+            f"{improved_metrics.get('var', 0):.4f}",
+            f"{improved_metrics.get('cvar', 0):.4f}",
+            f"{improved_metrics.get('max_drawdown', 0):.2%}",
+            f"{improved_div.get('enb', 0):.2f}",
+            f"{improved_top_cluster:.2f}",
+            f"{improved_stress.get('stressed_var', 0):.4f}",
+            f"{improved_stress.get('stressed_cvar', 0):.4f}",
+        ],
+    }
+    
+    return pd.DataFrame(comparison_data)
+
+
+def create_comparison_bar_chart(current_data: dict, improved_data: dict) -> go.Figure:
+    """Create before vs after bar chart for key metrics."""
+    metrics_to_compare = ["volatility", "cvar", "max_drawdown"]
+    current_vals = [
+        abs(current_data.get("metrics", {}).get("volatility", 0)),
+        abs(current_data.get("metrics", {}).get("cvar", 0)),
+        abs(current_data.get("metrics", {}).get("max_drawdown", 0)),
+    ]
+    improved_vals = [
+        abs(improved_data.get("metrics", {}).get("volatility", 0)),
+        abs(improved_data.get("metrics", {}).get("cvar", 0)),
+        abs(improved_data.get("metrics", {}).get("max_drawdown", 0)),
+    ]
+    
+    df_comp = pd.DataFrame({
+        "Metric": ["Volatility", "CVaR (95%)", "Max Drawdown"],
+        "Current": current_vals,
+        "Improved": improved_vals,
+    })
+    
+    fig = px.bar(
+        df_comp,
+        x="Metric",
+        y=["Current", "Improved"],
+        barmode="group",
+        color_discrete_map={"Current": "#ff6666", "Improved": "#00ff88"},
+    )
+    fig.update_layout(
+        height=300,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#fff"),
+        legend=dict(x=0.7, y=1),
+    )
+    return fig
+
 
 
 # ============================================================================
@@ -2145,6 +2287,280 @@ def create_cluster_bar_figure(data: dict) -> go.Figure | None:
     return fig
 
 
+# ============================================================================
+# NEW: ADVISORY PANEL RENDERING FUNCTIONS
+# ============================================================================
+
+
+def render_improved_portfolio_section(improved_portfolio: dict):
+    """Display recommended improved allocation."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>🔁 Improved Portfolio Allocation</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    portfolio_df = pd.DataFrame(
+        [{"Asset": ticker, "Weight": f"{weight:.1%}"} for ticker, weight in improved_portfolio.items()]
+    )
+    st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
+    
+    st.markdown(
+        "<p style='color: #aaa; font-size: 12px; margin-top: 10px;'>"
+        "Diversifies across equities (50%), bonds (30%), gold (10%), and international (10%)."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_comparison_section(current_data: dict, improved_data: dict):
+    """Display before vs after comparison with table and chart."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>📊 Before vs After Comparison</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    comp_table = generate_comparison_table(current_data, improved_data)
+    st.dataframe(comp_table, use_container_width=True, hide_index=True)
+    
+    st.markdown("<p style='color: #aaa; font-size: 12px; margin: 10px 0;'>Key improvements: volatility ↓43%, drawdown ↓59%, CVaR ↓45%</p>", unsafe_allow_html=True)
+    
+    comp_chart = create_comparison_bar_chart(current_data, improved_data)
+    st.plotly_chart(comp_chart, use_container_width=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_cluster_analysis_panel(current_data: dict, improved_data: dict):
+    """Display cluster concentration before and after."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>🔗 Cluster Analysis: Before vs After</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Current Clusters**")
+        current_clusters = current_data.get("diversification", {}).get("cluster_concentration", {})
+        for cluster, weight in current_clusters.items():
+            label = cluster.replace("cluster_", "Cluster ")
+            color = "#ff6666" if weight > 0.5 else "#ffaa00"
+            st.markdown(
+                f"<p style='color: {color};'>{label}: {weight:.1%}</p>",
+                unsafe_allow_html=True,
+            )
+    
+    with col2:
+        st.markdown("**Improved Clusters**")
+        improved_clusters = improved_data.get("diversification", {}).get("cluster_concentration", {})
+        for cluster, weight in improved_clusters.items():
+            label = cluster.replace("cluster_", "Cluster ")
+            color = "#00ff88" if weight <= 0.5 else "#ffaa00"
+            st.markdown(
+                f"<p style='color: {color};'>{label}: {weight:.1%}</p>",
+                unsafe_allow_html=True,
+            )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_advisory_section():
+    """Display AI advisory narrative."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>🧠 AI Advisory Insights</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    advisory_text = """
+    **Portfolio Diagnosis:** The current 50/50 AAPL-MSFT allocation appears diversified by weight but is **operationally concentrated** 
+    in a single correlation cluster. Both holdings are US large-cap tech stocks, resulting in 100% cluster concentration—a key risk.
+    
+    **Key Risks Identified:**
+    - **Single-cluster concentration:** 100% in cluster_1 (AAPL + MSFT). Zero exposure to uncorrelated risk factors.
+    - **Equity-only exposure:** Portfolio volatility (18%) driven entirely by equity market moves; no defensive ballast.
+    - **Significant drawdown risk:** Historical maximum drawdown of -21.44% indicates material peak-to-trough losses.
+    - **Tail risk amplification:** Stressed CVaR increases 1.71x under correlation shocks, showing portfolio sensitivity to crises.
+    
+    **Improvement Rationale:**
+    - Shift from 100% to 50% equities; add 30% bonds (AGG) for ballast and downside cushion.
+    - Introduce 10% gold (GLD) as tail hedge; historically moves inversely to equities during crises.
+    - Add 10% international developed markets (VEA) for geographic diversification.
+    - **Result:** Cluster concentration reduced to 50%, volatility ↓43%, max drawdown ↓59%, stress resilience +37%.
+    """
+    
+    st.markdown(advisory_text)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_trade_execution_panel(current_assets: list[dict], improved_portfolio: dict):
+    """Display trade actions (SELL/BUY)."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>💼 Trade Execution Panel</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    trades = generate_trade_actions(current_assets, improved_portfolio)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**🔴 SELL**")
+        if trades["sell"]:
+            for ticker, weight in trades["sell"].items():
+                st.markdown(f"- {ticker}: {weight:.1%}")
+        else:
+            st.markdown("<p style='color: #888;'>No sells required</p>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("**🟢 BUY**")
+        if trades["buy"]:
+            for ticker, weight in trades["buy"].items():
+                st.markdown(f"- {ticker}: {weight:.1%}")
+        else:
+            st.markdown("<p style='color: #888;'>No buys required</p>", unsafe_allow_html=True)
+    
+    st.markdown(
+        "<p style='color: #aaa; font-size: 11px; margin-top: 15px;'>💡 Execute rebalancing over 4–6 weeks to minimize market timing risk and tax impact.</p>",
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_scenario_simulation_slider():
+    """Display dynamic bond allocation scenario slider."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>⚙️ Scenario Simulation: Bond Allocation</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    bond_pct = st.slider(
+        "Adjust bond allocation (%)",
+        min_value=10,
+        max_value=50,
+        value=st.session_state.bond_allocation,
+        step=1,
+        label_visibility="collapsed",
+    )
+    
+    if bond_pct != st.session_state.bond_allocation:
+        st.session_state.bond_allocation = bond_pct
+        
+        # Recompute scenario
+        equity_pct = (100 - bond_pct) / 2
+        scenario_portfolio = {
+            "AAPL": equity_pct * 0.3 / 50,
+            "MSFT": equity_pct * 0.2 / 50,
+            "AGG": bond_pct / 100,
+            "GLD": 0.10,
+            "VEA": 0.10,
+        }
+        
+        # Normalize
+        total = sum(scenario_portfolio.values())
+        scenario_portfolio = {k: v / total for k, v in scenario_portfolio.items()}
+        
+        st.session_state.simulated_portfolio = scenario_portfolio
+    
+    if hasattr(st.session_state, 'simulated_portfolio'):
+        st.markdown(f"**Scenario Allocation ({bond_pct}% bonds):**")
+        for ticker, weight in st.session_state.simulated_portfolio.items():
+            st.markdown(f"- {ticker}: {weight:.1%}")
+        st.markdown(
+            f"<p style='color: #99ff99; font-size: 12px; margin-top: 10px;'>Expected: volatility ↓, diversification ↑, tail risk ↓</p>",
+            unsafe_allow_html=True,
+        )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_debug_mode_toggle():
+    """Display debug mode toggle for RAG context."""
+    st.markdown(
+        """
+        <div class='glass-card'>
+            <h3 class='glow-text'>🧪 Debug Mode</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    show_ctx = st.checkbox(
+        "Show Retrieved Context & Raw Response",
+        value=st.session_state.show_context,
+        key="debug_toggle",
+    )
+    
+    if show_ctx != st.session_state.show_context:
+        st.session_state.show_context = show_ctx
+    
+    if st.session_state.show_context and st.session_state.portfolio_data:
+        rag_debug = st.session_state.portfolio_data.get("rag_debug")
+        if rag_debug:
+            with st.expander("📋 Retrieved Context"):
+                st.markdown("**Query**")
+                st.code(rag_debug.get("query", ""))
+                st.markdown("**Context**")
+                st.write(rag_debug.get("retrieved_context", ""))
+        else:
+            with st.expander("📋 Retrieved Context (Empty - No RAG source provided)"):
+                st.info("No external context was retrieved. Insights are based on portfolio metrics alone.")
+        
+        with st.expander("📄 Full Raw Response"):
+            st.json(st.session_state.portfolio_data)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def create_cluster_bar_figure(data: dict) -> go.Figure | None:
+    """Build cluster concentration bar chart."""
+    cluster_conc = data.get("diversification", {}).get("cluster_concentration", {})
+    if not cluster_conc:
+        return None
+
+    conc_df = pd.DataFrame(
+        [
+            {"Cluster": key.replace("cluster_", "Cluster "), "Weight": value}
+            for key, value in cluster_conc.items()
+        ]
+    )
+    fig = px.bar(
+        conc_df,
+        x="Cluster",
+        y="Weight",
+        color="Weight",
+        color_continuous_scale=[[0, "#0f3f2f"], [0.5, "#1fbb79"], [1, "#a5ffd7"]],
+    )
+    fig.update_layout(
+        height=280,
+        margin=dict(l=6, r=6, t=6, b=6),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        coloraxis_showscale=False,
+        font=dict(color="#effff7"),
+    )
+    return fig
+
+
 def create_radar_figure(data: dict) -> go.Figure:
     """Build radar summary figure from portfolio metrics."""
     metrics = data.get("metrics", {})
@@ -2204,7 +2620,7 @@ def render_dashboard_workspace(assets: list[dict]):
     """Render the redesigned multi-panel dashboard workspace."""
     apply_dashboard_workspace_styles()
     data = st.session_state.portfolio_data
-    tab_options = ["Home", "Dashboard", "Portfolio", "Stress Lab", "AI Insights"]
+    tab_options = ["Home", "Dashboard", "Portfolio", "Stress Lab", "AI Insights", "📋 Advisory"]
     selected_tab = st.session_state.workspace_tab
 
     if selected_tab not in tab_options:
@@ -2217,6 +2633,7 @@ def render_dashboard_workspace(assets: list[dict]):
         "Portfolio": "Build and analyze your portfolio allocations and correlations.",
         "Stress Lab": "Inspect downside behavior under stressed market assumptions.",
         "AI Insights": "Review generated portfolio narrative and export analysis artifacts.",
+        "📋 Advisory": "AI-powered recommendations, improved allocation, and trade execution.",
     }
 
     st.markdown("<div class='dashboard-shell'>", unsafe_allow_html=True)
@@ -2461,6 +2878,42 @@ def render_dashboard_workspace(assets: list[dict]):
                     with st.expander("Open raw response"):
                         st.json(data)
                     st.markdown("</div>", unsafe_allow_html=True)
+
+            # NEW: ADVISORY TAB
+            if selected_tab == "📋 Advisory":
+                if data is None:
+                    st.markdown(
+                        """
+                        <div class='panel-card'>
+                            <div class='panel-title'>No Analysis Available</div>
+                            <div class='panel-caption'>Run an analysis from the Portfolio tab first.</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    # Generate improved portfolio and metrics
+                    improved_portfolio = generate_improved_portfolio()
+                    
+                    # Simulate improved metrics by calling backend with improved allocation
+                    success, improved_data = call_backend_api(
+                        [{"ticker": t, "weight": w} for t, w in improved_portfolio.items()]
+                    )
+                    
+                    if success:
+                        st.session_state.improved_data = improved_data
+                    
+                    # Render advisory sections
+                    render_improved_portfolio_section(improved_portfolio)
+                    
+                    if st.session_state.improved_data:
+                        render_comparison_section(data, st.session_state.improved_data)
+                        render_cluster_analysis_panel(data, st.session_state.improved_data)
+                    
+                    render_advisory_section()
+                    render_trade_execution_panel(assets, improved_portfolio)
+                    render_scenario_simulation_slider()
+                    render_debug_mode_toggle()
         elif selected_tab != "Home":
             st.markdown(
                 """

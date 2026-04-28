@@ -23,5 +23,10 @@
     "email": "0231csai096@niet.co.in",
     "password_hash": "$2b$12$kaCpeLAuKCpEtMYyBIOVqezH8nVk8V5NYQUdNSSISxgfMDl5dJ7JO",
     "created_at": "2026-04-22T04:40:30.781797"
+  },
+  "demo2": {
+    "email": "demo2@example.com",
+    "password_hash": "$2b$12$.XHnganTXlu9UinlqqzC..YQ7pFuLJlNp93NBwP6.j6ax./xZyn6i",
+    "created_at": "2026-04-28T22:49:27.580172"
   }
 }

@@ -106,6 +106,7 @@ def create_portfolio(portfolio: PortfolioRequest) -> dict[str, object]:
         "clusters": {str(cluster_id): members for cluster_id, members in clusters.items()},
         "enb": enb,
         "diversification_score": diversification_score,
+        "cluster_concentration": cluster_concentration,
         "stress": {
             "normal_var": var_95,
             "stressed_var": stressed_var_95,
@@ -113,14 +114,19 @@ def create_portfolio(portfolio: PortfolioRequest) -> dict[str, object]:
             "stressed_cvar": stressed_cvar_95,
         },
     }
-    ai_explanation = generate_portfolio_explanation(llm_input)
+    if getattr(portfolio, "debug_rag", False):
+        llm_input["debug_rag"] = True
+
+    ai_result = generate_portfolio_explanation(llm_input)
+    ai_explanation = str(ai_result.get("explanation", ""))
+    rag_debug = ai_result.get("rag_debug")
     logger.debug(
         "Generated AI explanation for tickers=%s with response_length=%d",
         tickers,
         len(ai_explanation),
     )
 
-    return {
+    response_payload: dict[str, object] = {
         "message": "Analysis complete",
         "metrics": {
             "volatility": round(volatility, 6),
@@ -145,3 +151,8 @@ def create_portfolio(portfolio: PortfolioRequest) -> dict[str, object]:
         },
         "ai_explanation": ai_explanation,
     }
+
+    if rag_debug:
+        response_payload["rag_debug"] = rag_debug
+
+    return response_payload
